@@ -27,10 +27,9 @@ class ExaBGP(Container):
         cls.dockerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
-RUN apt-get update && apt-get install -qy git python python-setuptools gcc python-dev
-RUN easy_install pip
-RUN git clone https://github.com/Exa-Networks/exabgp && \
-(cd exabgp && git checkout {0} && pip install six && pip install -r requirements.txt && python setup.py install)
+RUN apt-get update && apt-get install -qy libsystemd-dev apt-utils git python python-setuptools gcc python-dev build-essential python3-pip 
+RUN git clone git://github.com/Exa-Networks/exabgp && \
+(cd exabgp && git checkout {0} && pip install six && pip install -r requirements.txt && python3 setup.py install)
 RUN ln -s /root/exabgp /exabgp
 '''.format(checkout)
         super(ExaBGP, cls).build_image(force, tag, nocache)
@@ -48,7 +47,7 @@ class ExaBGP_MRTParse(Container):
         cls.dockerfile = '''
 FROM ubuntu:latest
 WORKDIR /root
-RUN apt-get update && apt-get install -qy git python python-setuptools gcc python-dev
+RUN apt-get update && apt-get install -qy git python python-setuptools gcc python-dev build-essential apt-utils
 RUN easy_install pip
 RUN git clone https://github.com/Exa-Networks/exabgp && \
 (cd exabgp && git checkout {0} && pip install six && pip install -r requirements.txt && python setup.py install)

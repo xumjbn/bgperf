@@ -34,31 +34,12 @@ RUN adduser --system --ingroup frr --home /var/run/frr/ \
    --gecos "FRR suite" --shell /sbin/nologin frr
 RUN usermod -a -G frrvty frr
 # install dependenciens
-RUN apt-get update && apt-get install -y \
-    git autoconf automake libtool make gawk libreadline-dev \
-    texinfo dejagnu pkg-config libpam0g-dev libjson-c-dev bison flex \
-    python-pytest libc-ares-dev python3-dev libsystemd-dev
-
-RUN git clone https://github.com/FRRouting/frr.git frr
-# build, including examples and documentation to disable '--disable-doc'
-RUN cd frr && git checkout {0} && ./bootstrap.sh && \
-./configure \
-    --prefix=/usr \
-    --enable-exampledir=/usr/share/doc/frr/examples/ \
-    --localstatedir=/var/run/frr \
-    --sbindir=/usr/lib/frr \
-    --sysconfdir=/etc/frr \
-    --enable-watchfrr \
-    --enable-multipath=64 \
-    --enable-user=frr \
-    --enable-group=frr \
-    --enable-vty-group=frrvty \
-    --enable-configfile-mask=0640 \
-    --enable-logfile-mask=0640 \
-    --enable-rtadv \
-    --with-pkg-git-version \
-    --with-pkg-extra-version=-bgperf_frr
-RUN cd frr && make -j2 && make check && make install
+RUN apt-get update && apt-get install -y curl wget \
+    python-pytest python3-dev libsystemd-dev gnupg 
+RUN curl -s https://deb.frrouting.org/frr/keys.asc | sudo apt-key add -
+RUN echo deb https://deb.frrouting.org/frr focal frr-8 | sudo tee -a /etc/apt/sources.list.d/frr.list
+#RUN echo deb https://deb.frrouting.org/frr $(lsb_release -s -c) $FRRVER | sudo tee -a /etc/apt/sources.list.d/frr.list
+RUN apt-get update && apt -y install frr frr-pythontools; exit 0
 '''.format(checkout)
         super(FRRouting, cls).build_image(force, tag, nocache)
 
@@ -74,6 +55,7 @@ class FRRoutingTarget(FRRouting, Target):
 password zebra
 router bgp {0}
 bgp router-id {1}
+no bgp ebgp-requires-policy
 """.format(self.conf['as'], self.conf['router-id'])
 
         def gen_neighbor_config(n):
@@ -91,11 +73,13 @@ neighbor {0} timers 30 90
         with open('{0}/{1}'.format(self.host_dir, self.CONFIG_FILE_NAME), 'w') as f:
             f.write(config)
             for n in list(flatten(t.get('neighbors', {}).values() for t in scenario_global_conf['testers'])) + [scenario_global_conf['monitor']]:
+                if n['local-address'] != '10.10.0.2':
+                    n['as'] = 1000
                 f.write(gen_neighbor_config(n))
 
             if 'policy' in scenario_global_conf:
                 seq = 10
-                for k, v in scenario_global_conf['policy'].iteritems():
+                for k, v in scenario_global_conf['policy'].items():
                     match_info = []
                     for i, match in enumerate(v['match']):
                         n = '{0}_match_{1}'.format(k, i)
@@ -131,7 +115,6 @@ neighbor {0} timers 30 90
         return '\n'.join(
             ['#!/bin/bash',
              'ulimit -n 65536',
-             'mkdir /etc/frr',
              'cp {guest_dir}/{config_file_name} /etc/frr/{config_file_name} && chown frr:frr /etc/frr/{config_file_name}',
              '/usr/lib/frr/bgpd -u frr -f /etc/frr/{config_file_name}']
         ).format(

@@ -19,7 +19,8 @@ import os
 from  settings import dckr
 
 def rm_line():
-    print '\x1b[1A\x1b[2K\x1b[1D\x1b[1A'
+    pass
+    #print '\x1b[1A\x1b[2K\x1b[1D\x1b[1A'
 
 
 class ExaBGPTester(Tester, ExaBGP):
@@ -33,7 +34,7 @@ class ExaBGPTester(Tester, ExaBGP):
         peers = self.conf.get('neighbors', {}).values()
 
         for p in peers:
-            with open('{0}/{1}.conf'.format(self.host_dir, p['router-id']), 'w') as f:
+            with open('{0}/{1}.conf'.format(self.host_dir, p['router-id']), 'w+') as f:
                 local_address = p['local-address']
                 config = '''neighbor {0} {{
     peer-as {1};
@@ -42,22 +43,44 @@ class ExaBGPTester(Tester, ExaBGP):
     local-as {4};
     static {{
 '''.format(target_conf['local-address'], target_conf['as'],
-               p['router-id'], local_address, p['as'])
+               p['router-id'], local_address, 1000)
                 f.write(config)
                 for path in p['paths']:
-                    f.write('      route {0} next-hop {1};\n'.format(path, local_address))
+                    f.write('      route {0} next-hop {1} as-path [ 100 ];\n'.format(path, local_address))
                 f.write('''   }
-}''')
+}
+''')
+                for p1 in peers:
+                    if p != p1:
+                        local_address = p['local-address']
+                        config = '''neighbor {0} {{
+    peer-as {1};
+    router-id {2};
+    local-address {3};
+    local-as {4};
+    static {{
+'''.format(p1['local-address'], target_conf['as'],
+               p['router-id'], local_address, 1000)
+                        f.write(config)
+                        for path in p['paths']:
+                            f.write('      route {0} next-hop {1} as-path [ 100 ];\n'.format(path, local_address))
+                        f.write('''   }
+}
+''')
 
     def get_startup_cmd(self):
         startup = ['''#!/bin/bash
-ulimit -n 65536''']
+ulimit -n 65536
+mkdir -p /usr/local/bin/etc/exabgp/
+mkdir -p /run/exabgp/
+mkdir -p /root/config/run/
+mkfifo /run/exabgp.{in,out}
+exabgp env > /usr/local/bin/etc/exabgp/exabgp.env''']
 
         peers = self.conf.get('neighbors', {}).values()
         for p in peers:
-            startup.append('''env exabgp.log.destination={0}/{1}.log \
+            startup.append('''env exabgp.tcp.bind={2} exabgp.tcp.port=179 exabgp.log.destination={0}/{1}.log \
 exabgp.daemon.daemonize=true \
 exabgp.daemon.user=root \
-exabgp {0}/{1}.conf'''.format(self.guest_dir, p['router-id']))
-
+exabgp {0}/{1}.conf'''.format(self.guest_dir, p['router-id'], p['router-id']))
         return '\n'.join(startup)

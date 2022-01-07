@@ -28,11 +28,10 @@ class GoBGP(Container):
         cls.dockerfile = '''
 FROM golang:1.6
 WORKDIR /root
-RUN go get -v github.com/osrg/gobgp/gobgpd
-RUN go get -v github.com/osrg/gobgp/gobgp
-RUN cd $GOPATH/src/github.com/osrg/gobgp && git checkout {0}
-RUN go install github.com/osrg/gobgp/gobgpd
-RUN go install github.com/osrg/gobgp/gobgp
+RUN apt-get -y install wget
+RUN wget https://github.com/osrg/gobgp/releases/download/v3.0.0-rc3/gobgp_3.0.0-rc3_linux_amd64.tar.gz > /dev/null 2>&1
+RUN tar -xzf gobgp_3.0.0-rc3_linux_amd64.tar.gz
+RUN mv gobgp gobgpd /usr/bin/
 '''.format(checkout)
         super(GoBGP, cls).build_image(force, tag, nocache)
 
@@ -61,7 +60,7 @@ class GoBGPTarget(GoBGP, Target):
                         'ext-community-sets': [],
                     },
             }
-            for k, v in scenario_global_conf['policy'].iteritems():
+            for k, v in scenario_global_conf['policy'].items():
                 conditions = {
                     'bgp-conditions': {},
                 }
@@ -99,21 +98,24 @@ class GoBGPTarget(GoBGP, Target):
 
 
         def gen_neighbor_config(n):
-            c = {'config': {'neighbor-address': n['local-address'], 'peer-as': n['as']},
-                 'transport': {'config': {'local-address': self.conf['local-address']}},
-                 'route-server': {'config': {'route-server-client': True}}}
-            if 'filter' in n:
-                a = {}
-                if 'in' in n['filter']:
-                    a['in-policy-list'] = n['filter']['in']
-                    a['default-in-policy'] = 'accept-route'
-                if 'out' in n['filter']:
-                    a['export-policy-list'] = n['filter']['out']
-                    a['default-export-policy'] = 'accept-route'
-                c['apply-policy'] = {'config': a}
+            c = {'config': {'neighbor-address': n['local-address'], 'peer-as': 1000},
+                 'transport': {'config': {'local-address': self.conf['local-address'] }},
+                 'route-server': {'config': {'route-server-client': False}}}
+                 #'route-reflector': {'config': {'route-reflector-client': False}},
+                 #'apply-policy': {'config': {'default-import-policy': 'accept-route', 'default-export-policy': 'accept-route'}}}
+            #if 'filter' in n:
+                #a = {}
+                #if 'in' in n['filter']:
+                #    a['in-policy-list'] = n['filter']['in']
+                #    a['default-in-policy'] = 'accept-route'
+                #if 'out' in n['filter']:
+                #    a['export-policy-list'] = n['filter']['out']
+                #    a['default-export-policy'] = 'accept-route'
+                #c['apply-policy'] = {'config': a}
             return c
 
         config['neighbors'] = [gen_neighbor_config(n) for n in list(flatten(t.get('neighbors', {}).values() for t in scenario_global_conf['testers'])) + [scenario_global_conf['monitor']]]
+        config['neighbors'][-1]["config"]["peer-as"] = 1001
         with open('{0}/{1}'.format(self.host_dir, self.CONFIG_FILE_NAME), 'w') as f:
             f.write(yaml.dump(config, default_flow_style=False))
 
@@ -121,7 +123,7 @@ class GoBGPTarget(GoBGP, Target):
         return '\n'.join(
             ['#!/bin/bash',
              'ulimit -n 65536',
-             'gobgpd -t yaml -f {guest_dir}/{config_file_name} -l {debug_level} > {guest_dir}/gobgpd.log 2>&1']
+             'gobgpd -t yaml -f {guest_dir}/{config_file_name} -l {debug_level} --cpus=8 --pprof-disable > {guest_dir}/gobgpd.log 2>&1']
         ).format(
             guest_dir=self.guest_dir,
             config_file_name=self.CONFIG_FILE_NAME,
